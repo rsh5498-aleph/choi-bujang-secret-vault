@@ -5,7 +5,7 @@ import { deploymentIdentity } from './deployment-identity.mjs';
 const root = resolve(import.meta.dirname, '..');
 const output = resolve(root, 'public', 'data.json');
 const config = JSON.parse(await readFile(resolve(root, 'aleph.config.json'), 'utf8'));
-if (config.step !== 3) throw new Error('이 빌드는 3단계 설정이 필요합니다.');
+if (config.step !== 4) throw new Error('이 빌드는 4단계 설정이 필요합니다.');
 await mkdir(resolve(root, 'public'), { recursive: true });
 await writeFile(output, '{"notes":[]}\n', 'utf8');
 console.log('공개 data.json에는 메모 본문을 포함하지 않습니다.');

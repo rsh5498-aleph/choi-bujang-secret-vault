@@ -11,7 +11,7 @@ async function api(path='',options={}){
  if(!session)throw new Error('로그인이 필요합니다.');
  const response=await fetch('/api/notes'+path,{...options,cache:'no-store',headers:{'Content-Type':'application/json',Authorization:'Bearer '+session.access_token}});
  const result=await response.json();
- if(!response.ok){const messages={login_required:'로그인이 필요합니다.',invalid_login:'로그인 인증이 만료되었거나 올바르지 않습니다.',invalid_note:'제목과 내용을 확인해주세요.',note_not_found:'메모를 찾을 수 없습니다.',auth_unavailable:'인증 서버 설정을 확인할 수 없습니다.',notes_unavailable:'자료를 불러올 수 없습니다.',note_exists:'같은 ID의 메모가 있습니다.'};throw new Error(messages[result.error]||'요청을 처리하지 못했습니다.');}
+ if(!response.ok){const messages={login_required:'로그인이 필요합니다.',invalid_login:'로그인 인증이 만료되었거나 올바르지 않습니다.',invalid_note:'제목과 내용을 확인해주세요.',note_not_found:'메모를 찾을 수 없습니다.',auth_unavailable:'인증 서버 설정을 확인할 수 없습니다.',notes_unavailable:'자료를 불러올 수 없습니다.',note_exists:'같은 ID의 메모가 있습니다.',owner_change_forbidden:'메모 소유자를 변경할 수 없습니다.'};throw new Error(messages[result.error]||'요청을 처리하지 못했습니다.');}
  return result;
 }
 async function loadNotes(){

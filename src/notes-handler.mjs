@@ -34,13 +34,13 @@ export function createNotesHandler(runtime) {
         return res.status(200).json(data);
       }
       if (method === 'DELETE') {
-        const { data, error } = await table().delete().eq('id', id).select('id').maybeSingle();
+        const { data, error } = await table().delete().eq('id', id).eq('owner_id', identity.userId).select('id').maybeSingle();
         if (error) throw error;
         if (!data) return res.status(404).json({ error: 'note_not_found' });
         return res.status(200).json({ id: data.id, deleted: true });
       }
       if (method === 'GET') {
-        const { data, error } = await table().select(fields).eq('id', id).maybeSingle();
+        const { data, error } = await table().select(fields).eq('id', id).eq('owner_id', identity.userId).maybeSingle();
         if (error) throw error;
         if (!data) return res.status(404).json({ error: 'note_not_found' });
         return res.status(200).json(data);
@@ -51,6 +51,9 @@ export function createNotesHandler(runtime) {
           || !input.title.trim() || input.title.length > 200 || input.body.length > 10000) {
         return res.status(400).json({ error: 'invalid_note' });
       }
+      if (input.owner_id !== undefined && input.owner_id !== identity.userId) {
+        return res.status(403).json({ error: 'owner_change_forbidden' });
+      }
       const values = { title: input.title.trim(), body: input.body };
       let query;
       if (method === 'POST') {
@@ -58,7 +61,7 @@ export function createNotesHandler(runtime) {
           return res.status(400).json({ error: 'invalid_id' });
         }
         query = table().insert({ ...values, id: input.id ?? randomUUID(), owner_id: identity.userId });
-      } else query = table().update(values).eq('id', id);
+      } else query = table().update(values).eq('id', id).eq('owner_id', identity.userId);
       const { data, error } = await query.select(fields).maybeSingle();
       if (error?.code === '23505') return res.status(409).json({ error: 'note_exists' });
       if (error) throw error;

@@ -1,16 +1,10 @@
 export async function runAttackChecks(config) {
-  if (config.step !== 2) throw new Error('이 점검은 2단계용입니다.');
-  const app = new URL(config.publicAppUrl);
-  if (app.protocol !== 'https:' || app.username || app.password || app.search || app.hash || app.pathname !== '/') throw new Error('실제 HTTPS 배포 주소를 확인하세요.');
-  const attempts = [];
-  for (const path of ['/data.json', '/api/notes', '/aleph.json']) {
-    const response = await fetch(new URL(path, app), { redirect: 'error', signal: AbortSignal.timeout(10000) });
-    let data;
-    try { data = await response.json(); } catch { data = null; }
-    const count = Array.isArray(data?.notes) ? data.notes.length : null;
-    if (path === '/data.json') attempts.push({ attackId: 'static_note_removed', expected: '정적 메모 0건 또는 HTTP 404', observed: `HTTP ${response.status} · 메모 수 ${count ?? '확인 불가'}` });
-    if (path === '/api/notes') attempts.push({ attackId: 'public_api_remaining', expected: '2단계 공개 API로 가상 메모 4건 조회 가능', observed: `HTTP ${response.status} · 메모 수 ${count ?? '확인 불가'} · 로그인 보호 미구현` });
-    if (path === '/aleph.json') attempts.push({ attackId: 'deployment_identity', expected: 'HTTP 200 · 2단계 · 저장소와 최신 커밋 정보', observed: `HTTP ${response.status} · 단계 ${Number.isInteger(data?.step) ? data.step : '확인 불가'} · 저장소 일치 ${data?.repoUrl === config.repoUrl}` });
-  }
-  return attempts;
+ if(config.step!==3)throw new Error('이 점검은 3단계용입니다.');
+ const app=new URL(config.publicAppUrl);
+ if(app.protocol!=='https:'||app.username||app.password||app.search||app.hash||app.pathname!=='/')throw new Error('실제 HTTPS 배포 주소를 확인하세요.');
+ const attempts=[];
+ const checks=[['unauthenticated_list','/api/notes','GET',{}],['invalid_bearer','/api/notes','GET',{Authorization:'Bearer invalid'}],['unauthenticated_create','/api/notes','POST',{}],['unauthenticated_read','/api/notes/33333333-3333-4333-8333-333333333333','GET',{}],['unauthenticated_update','/api/notes/33333333-3333-4333-8333-333333333333','PUT',{}],['unauthenticated_delete','/api/notes/33333333-3333-4333-8333-333333333333','DELETE',{}]];
+ for(const [attackId,path,method,headers] of checks){const r=await fetch(new URL(path,app),{method,headers,redirect:'error',signal:AbortSignal.timeout(10000)});let d;try{d=await r.json();}catch{d=null;}const valid=[401,403].includes(r.status)&&typeof d?.error==='string'&&!d.notes;attempts.push({attackId,expected:'HTTP 401/403 · 메모 없이 JSON 오류',observed:`HTTP ${r.status} · JSON 오류 ${typeof d?.error==='string'} · 거부 조건 통과 ${valid}`});if(!valid)throw new Error(`${attackId}: 비로그인 거부 조건 불일치`);}
+ for(const path of ['/data.json','/aleph.json','/']){const r=await fetch(new URL(path,app),{redirect:'error',signal:AbortSignal.timeout(10000)});const d=path==='/'?null:await r.json();if(path==='/data.json'){const count=Array.isArray(d?.notes)?d.notes.length:null;attempts.push({attackId:'static_note_removed',expected:'정적 메모 0건',observed:`HTTP ${r.status} · 메모 수 ${count}`});if(count!==0)throw new Error('정적 메모 검증 실패');}else if(path==='/aleph.json'){attempts.push({attackId:'deployment_identity',expected:'HTTP 200 · 3단계 · 저장소 일치',observed:`HTTP ${r.status} · 단계 ${d?.step} · 저장소 일치 ${d?.repoUrl===config.repoUrl}`});if(r.status!==200||d?.step!==3||d?.repoUrl!==config.repoUrl)throw new Error('배포 식별 검증 실패');}else{const header=r.headers.get('x-content-type-options');attempts.push({attackId:'security_header',expected:'홈페이지 X-Content-Type-Options nosniff',observed:`HTTP ${r.status} · nosniff ${header==='nosniff'}`});if(header!=='nosniff')throw new Error('보안 헤더 검증 실패');}}
+ return attempts;
 }

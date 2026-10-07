@@ -1,37 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createNotesHandler } from '../src/notes-handler.mjs';
 import handler from '../api/notes.js';
-function response() {
-  return { headers: {}, setHeader(k, v) { this.headers[k] = v; },
-    status(code) { this.code = code; return this; }, json(body) { this.body = body; return this; } };
-}
-test('API handles server configuration, DB output and errors safely', async () => {
-  const oldFetch = globalThis.fetch;
-  const oldUrl = process.env.SUPABASE_URL;
-  const oldKey = process.env.SUPABASE_SECRET_KEY;
-  try {
-    delete process.env.SUPABASE_SECRET_KEY;
-    const missing = response(); await handler({ method: 'GET' }, missing);
-    assert.equal(missing.code, 503);
-    assert.deepEqual(missing.body, { error: 'database_not_configured' });
-    process.env.SUPABASE_URL = 'https://test.supabase.co';
-    process.env.SUPABASE_SECRET_KEY = 'placeholder-for-unit-test';
-    globalThis.fetch = async (url, options) => {
-      assert.equal(url.pathname, '/rest/v1/vault_notes');
-      assert.equal(options.headers.apikey, process.env.SUPABASE_SECRET_KEY);
-      return { ok: true, json: async () => Array.from({ length: 4 }, () => ({ title: 'fixture', content: 'fixture', owner_id: 'private' })) };
-    };
-    const res = response(); await handler({ method: 'GET' }, res);
-    assert.equal(res.code, 200); assert.equal(res.body.notes.length, 4);
-    assert.deepEqual(Object.keys(res.body.notes[0]), ['title', 'content']);
-    globalThis.fetch = async () => { throw new Error('secret upstream detail'); };
-    const failed = response(); await handler({ method: 'GET' }, failed);
-    assert.equal(failed.code, 502); assert.deepEqual(failed.body, { error: 'notes_unavailable' });
-    const rejected = response(); await handler({ method: 'POST' }, rejected);
-    assert.equal(rejected.code, 405);
-  } finally {
-    globalThis.fetch = oldFetch;
-    if (oldUrl === undefined) delete process.env.SUPABASE_URL; else process.env.SUPABASE_URL = oldUrl;
-    if (oldKey === undefined) delete process.env.SUPABASE_SECRET_KEY; else process.env.SUPABASE_SECRET_KEY = oldKey;
-  }
-});
+const A='11111111-1111-4111-8111-111111111111';
+const B='22222222-2222-4222-8222-222222222222';
+const ID='33333333-3333-4333-8333-333333333333';
+function response(){return {headers:{},setHeader(k,v){this.headers[k]=v;},status(code){this.code=code;return this;},json(body){this.body=body;return this;}};}
+function database(){const rows=new Map();return {rows,from(name){assert.equal(name,'user_notes');let operation='select',values,filter;const q={select(){return q;},eq(k,v){filter=[k,v];return q;},insert(v){operation='insert';values=v;return q;},update(v){operation='update';values=v;return q;},delete(){operation='delete';return q;},async order(){return {data:[...rows.values()].filter(r=>r[filter[0]]===filter[1]).map(({id,title,body})=>({id,title,body})),error:null};},async maybeSingle(){let row;if(operation==='insert'){if(rows.has(values.id))return {error:{code:'23505'}};row={...values};rows.set(row.id,row);}else{row=[...rows.values()].find(r=>r[filter[0]]===filter[1]);if(row&&operation==='update')Object.assign(row,values);if(row&&operation==='delete')rows.delete(row.id);}return {data:row?{id:row.id,title:row.title,body:row.body}:null,error:null};}};return q;}};}
+test('unauthenticated API fails closed before runtime and never exposes server detail',async()=>{const res=response();await handler({method:'GET'},res);assert.equal(res.code,401);assert.deepEqual(res.body,{error:'login_required'});assert.equal(res.headers['X-Content-Type-Options'],'nosniff');const failed=response();await createNotesHandler(()=>{throw new Error('private upstream detail');})({method:'GET',headers:{authorization:'Bearer invalid'}},failed);assert.equal(failed.code,503);assert.deepEqual(failed.body,{error:'auth_unavailable'});const invalid=response();await createNotesHandler(()=>({verify:async()=>null}))({method:'GET',headers:{authorization:'Bearer invalid'}},invalid);assert.equal(invalid.code,401);});
+test('verified identity controls ownership; CRUD contract and deleted GET404',async()=>{const db=database();const h=createNotesHandler(()=>({db,verify:async auth=>auth==='Bearer fixtureA'?{userId:A}:auth==='Bearer fixtureB'?{userId:B}:null}));const call=async(method,id,body,identity='A')=>{const res=response();await h({method,query:id?{id}:{},body,headers:{authorization:'Bearer fixture'+identity}},res);return res;};const made=await call('POST',null,{id:ID,title:'Fixture',body:'Disposable test text',owner_id:B,userId:B,role:'admin'});assert.equal(made.code,201);assert.deepEqual(made.body,{id:ID});assert.equal(db.rows.get(ID).owner_id,A);assert.equal((await call('GET')).body.length,1);assert.deepEqual((await call('GET',null,null,'B')).body,[]);assert.equal((await call('GET',ID)).body.title,'Fixture');assert.equal((await call('PUT',ID,{title:'Changed',body:'Updated',owner_id:B})).code,200);assert.equal(db.rows.get(ID).owner_id,A);assert.equal((await call('GET',ID,null,'B')).code,200,'stage 3 known per-object authorization gap');assert.equal((await call('POST',null,{id:ID,title:'Duplicate',body:''})).code,409);assert.equal((await call('PUT',ID,{title:'',body:''})).code,400);assert.equal((await call('DELETE',ID)).code,200);assert.equal((await call('GET',ID)).code,404);assert.equal((await call('GET','not-uuid')).code,400);});

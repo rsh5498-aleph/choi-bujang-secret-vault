@@ -1,28 +1,28 @@
-# BYTE BACK 2단계 저장점 준비
+# BYTE BACK 3단계 저장점
 
-자료를 정적 JSON에서 Supabase public.vault_notes로 옮기는 코드입니다.
-홈페이지는 /api/notes를 호출하며, 서버만 환경변수 SUPABASE_URL과 SUPABASE_SECRET_KEY를 읽습니다.
-공개 data.json에는 notes 빈 배열만 남습니다. aleph.json은 빌드 시 실제 저장소와 커밋으로 생성됩니다.
+Supabase Auth 이메일·비밀번호 로그인/로그아웃과 서버의 토큰 검증을 구현했습니다. 공식 SDK를 사용하며 src/verify-login.mjs와 judgeIssuer는 원본 그대로 보존합니다. 서버가 검증한 ID를 owner_id로 저장합니다. 로그인 실패 이유는 화면에 표시합니다.
 
-## 설정과 실행
+## 설정 및 다시 실행
 
-1. 별도 제공한 step2-migrate.sql을 Supabase SQL Editor에서 실행합니다. SQL에는 실습용 가상 자료만 있습니다. 메모 본문이 있는 SQL은 GitHub에 올리지 않습니다.
-2. Vercel Settings → Environment Variables에서 SUPABASE_URL과 SUPABASE_SECRET_KEY를 서버 환경변수로 입력합니다. 브라우저 공개 변수 접두사는 쓰지 않습니다.
-3. 코드 반영 후 재배포합니다. 로컬 정적 빌드 점검은 npm run build -- --local입니다.
+- Supabase SQL Editor에서 scripts/step3-migrate.sql을 실행합니다. 기존 vault_notes 네 가상 메모는 보존하고, UUID 기반 user_notes를 별도로 만듭니다. 신규 로그인 사용자의 메모 목록은 비어 있으므로 가상 메모를 추가하세요.
+- Vercel Production 환경변수 SUPABASE_URL과 SUPABASE_SECRET_KEY를 유지합니다. 서버 키는 브라우저·Git·응답·로그에 넣지 않습니다. public/app.js의 publishable key는 공개용입니다.
+- Supabase 이메일 제공자는 활성화되어 있으며 이메일 확인은 켜 둡니다. Site URL은 https://choi-bujang-secret-vault-black-beta.vercel.app 입니다.
+- npm install 후 node --test test/step2.test.mjs test/login-stage3.test.mjs 로 현재 API·인증 시험을 실행합니다. test/step2.test.mjs는 이전 API 변경에 따라 3단계 회귀 시험으로 갱신했습니다. 시작 틀의 test:r5/test:package는 이전 단계의 고정 기대값이므로 현재 단계의 배포 검증으로 사용하지 않습니다.
+- npm run build -- --local 은 정적 메모 제거를 검사합니다. Vercel 빌드는 시스템 Git 정보로 aleph.json을 생성합니다.
+- 배포 화면에서 계정 만들기 → 이메일 인증 → 로그인 → 가상 메모 저장/수정/삭제 → 로그아웃 순서로 확인합니다. 비밀번호는 사용자가 직접 입력하며 제출 자료에 기록하지 않습니다.
 
-정상 결과: 홈페이지 네 카드, /api/notes HTTP 200과 네 가상 메모, /data.json의 notes 0건, /aleph.json의 step 2와 최신 커밋.
-거부 결과: anon/authenticated 역할로 DB 직접 조회 시 자료 반환 금지. 서버 환경변수 누락 시 API는 503을 반환하며 대체 메모를 노출하지 않습니다.
+## API 계약
 
-## 남은 약점과 확인
+인증은 Authorization Bearer 토큰을 src/verify-login.mjs로 검증합니다. 브라우저의 userId/role/owner_id는 권한 근거로 사용하지 않습니다. 토큰 없음·검증 실패는 메모 없이 JSON 401, 인증 설정 장애는 JSON 503입니다.
 
-2단계의 /api/notes는 비로그인으로 요청할 수 있습니다. DB 이전만으로 접근 보호가 끝나지 않으며 로그인 검증은 3단계에서 추가합니다.
-이전 Git 커밋과 이전 Vercel 배포에는 가상 메모가 남아 있을 수 있습니다. 최신 파일 수정으로 과거 노출이 해소됐다고 주장하지 않습니다.
-최신 파일 검색: rg -n '실습용 가상 (과제|포트폴리오|리추얼|행정) 기록' . --glob '!node_modules/**' --glob '!.git/**' --glob '!artifacts/**'
-새 정적 파일은 public에서, 최신 Git 파일은 git grep으로 확인합니다. 빈 배열과 파일 상태 확인은 메모 원문 검색과 별도로 수행합니다.
+GET /api/notes는 검증된 사용자 소유 메모 배열을 반환합니다. POST /api/notes는 {id,title,body}를 받으며 id는 UUID이고 생략하면 서버가 생성합니다. 응답은 201 {id}입니다. GET /api/notes/:id는 {id,title,body}, PUT /api/notes/:id는 제목·본문 수정, DELETE /api/notes/:id는 삭제입니다. 삭제 후 GET은 JSON 404입니다. 제목은 1~200자, 본문은 최대 10000자입니다.
 
-## 현재 검증 상태
+## 보존한 약점과 공개 이력
 
-DB SQL 실행과 Production 환경변수 설정을 완료했습니다. SQL 확인 결과 메모 4건, RLS true, owner_id uuid, anon/authenticated SELECT 권한 false입니다. 로컬 API 오류 처리 시험과 정적 빌드가 통과했습니다. 실제 배포 검증은 배포 완료 후 수행합니다.
-마지막 커밋이 실제로 반영된 뒤 이 기록을 최신 커밋과 대조하고 npm run bundle을 실행해야 합니다.
-운영 심판 판정은 과제 포털에서 별도로 확인합니다.
+3단계는 로그인 확인 단계입니다. 목록은 본인 것으로 제한하지만 개별 ID의 GET/PUT/DELETE에는 소유자 검사를 아직 추가하지 않았습니다. 로그인한 B가 A 메모 ID를 알면 접근할 수 있으며, 이는 4단계에서 차단해야 합니다. 과거 공개 Git 커밋과 Vercel 배포의 가상 메모 노출도 남아 있으므로 과거 노출이 해소됐다고 주장하지 않습니다.
 
+## 검증 기록
+
+DB 실행 결과 user_notes RLS true, anon SELECT false, authenticated SELECT false를 확인했습니다. 기존 vault_notes를 변경하지 않았습니다. 로컬 시험은 비로그인 차단, 검증된 소유자 저장, CRUD, 삭제 후404, 인증 검증 실패와 발급자 구분을 다룹니다. 실제 로그인 사용자 A의 배포 화면 시험은 사용자가 계정 생성·로그인을 완료한 뒤 확인해야 하며 아직 미실행입니다.
+
+저장점 커밋 후 npm run bundle은 공개 배포에 실제 요청을 보내 비로그인 CRUD 거부, 잘못된 토큰 거부, 정적 메모0건, 3단계 aleph.json, nosniff 헤더를 확인합니다. JSON 결과는 본인의 점검이며 심판 판정이 아닙니다. bundle-notes.json과 artifacts는 커밋하지 않습니다.
